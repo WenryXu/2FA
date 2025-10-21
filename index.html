@@ -231,12 +231,12 @@
             }
 
             generateTOTP(timestamp) {
-                const epoch = Math.floor(timestamp / 30000);
+                let epoch = Math.floor(timestamp / 1000 / 30);
                 const time = new Uint8Array(8);
 
                 for (let i = 7; i >= 0; i--) {
                     time[i] = epoch & 0xff;
-                    epoch >> 8;
+                    epoch = Math.floor(epoch / 256);
                 }
 
                 // Convert time to hex string
