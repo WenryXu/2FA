@@ -1,0 +1,425 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>2FA 验证码生成器</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            padding: 20px;
+        }
+
+        .container {
+            background: white;
+            border-radius: 20px;
+            padding: 40px;
+            box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+            max-width: 450px;
+            width: 100%;
+            text-align: center;
+        }
+
+        .title {
+            font-size: 28px;
+            font-weight: 700;
+            color: #333;
+            margin-bottom: 10px;
+        }
+
+        .subtitle {
+            font-size: 14px;
+            color: #666;
+            margin-bottom: 30px;
+        }
+
+        .code-display {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            border-radius: 15px;
+            padding: 30px;
+            margin-bottom: 25px;
+            cursor: pointer;
+            transition: transform 0.2s, box-shadow 0.2s;
+            position: relative;
+            overflow: hidden;
+        }
+
+        .code-display:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 10px 30px rgba(102, 126, 234, 0.4);
+        }
+
+        .code-display:active {
+            transform: translateY(0);
+        }
+
+        .code {
+            font-size: 48px;
+            font-weight: 700;
+            color: white;
+            letter-spacing: 8px;
+            font-family: 'Courier New', monospace;
+            margin-bottom: 10px;
+        }
+
+        .code-hint {
+            font-size: 12px;
+            color: rgba(255, 255, 255, 0.8);
+            text-transform: uppercase;
+            letter-spacing: 1px;
+        }
+
+        .timer-container {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            margin-bottom: 20px;
+        }
+
+        .timer-circle {
+            position: relative;
+            width: 80px;
+            height: 80px;
+        }
+
+        .timer-svg {
+            transform: rotate(-90deg);
+        }
+
+        .timer-circle-bg {
+            fill: none;
+            stroke: #e0e0e0;
+            stroke-width: 6;
+        }
+
+        .timer-circle-progress {
+            fill: none;
+            stroke: #667eea;
+            stroke-width: 6;
+            stroke-linecap: round;
+            transition: stroke-dashoffset 1s linear;
+        }
+
+        .timer-text {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            font-size: 24px;
+            font-weight: 700;
+            color: #667eea;
+        }
+
+        .secret-info {
+            background: #f5f5f5;
+            border-radius: 10px;
+            padding: 15px;
+            margin-top: 20px;
+            font-size: 12px;
+            color: #666;
+            word-break: break-all;
+        }
+
+        .secret-label {
+            font-weight: 600;
+            color: #333;
+            margin-bottom: 5px;
+        }
+
+        .toast {
+            position: fixed;
+            top: 20px;
+            right: 20px;
+            background: #4caf50;
+            color: white;
+            padding: 15px 25px;
+            border-radius: 10px;
+            box-shadow: 0 5px 20px rgba(0, 0, 0, 0.2);
+            opacity: 0;
+            transform: translateX(400px);
+            transition: all 0.3s ease;
+            z-index: 1000;
+            font-weight: 500;
+        }
+
+        .toast.show {
+            opacity: 1;
+            transform: translateX(0);
+        }
+
+        .error-message {
+            background: #fff3cd;
+            color: #856404;
+            padding: 20px;
+            border-radius: 10px;
+            border-left: 4px solid #ffc107;
+            margin-top: 20px;
+            text-align: left;
+        }
+
+        .error-message strong {
+            display: block;
+            margin-bottom: 5px;
+        }
+
+        .loading {
+            color: #667eea;
+            font-size: 18px;
+            font-weight: 500;
+        }
+
+        @keyframes pulse {
+            0%, 100% {
+                opacity: 1;
+            }
+            50% {
+                opacity: 0.5;
+            }
+        }
+
+        .loading {
+            animation: pulse 1.5s ease-in-out infinite;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="title">🔐 2FA 验证码</div>
+        <div class="subtitle">Two-Factor Authentication</div>
+
+        <div id="app">
+            <div class="loading">正在加载...</div>
+        </div>
+    </div>
+
+    <div id="toast" class="toast"></div>
+
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jsSHA/3.3.1/sha.js"></script>
+    <script>
+        class TOTP {
+            constructor(secret) {
+                this.secret = secret.replace(/\s/g, '').toUpperCase();
+            }
+
+            base32Decode(base32) {
+                const base32Chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ234567';
+                let bits = '';
+
+                for (let i = 0; i < base32.length; i++) {
+                    const val = base32Chars.indexOf(base32.charAt(i));
+                    if (val === -1) continue;
+                    bits += val.toString(2).padStart(5, '0');
+                }
+
+                const bytes = [];
+                for (let i = 0; i + 8 <= bits.length; i += 8) {
+                    bytes.push(parseInt(bits.substr(i, 8), 2));
+                }
+
+                return new Uint8Array(bytes);
+            }
+
+            generateTOTP(timestamp) {
+                const epoch = Math.floor(timestamp / 30000);
+                const time = new Uint8Array(8);
+
+                for (let i = 7; i >= 0; i--) {
+                    time[i] = epoch & 0xff;
+                    epoch >> 8;
+                }
+
+                // Convert time to hex string
+                let timeHex = '';
+                for (let i = 0; i < time.length; i++) {
+                    timeHex += time[i].toString(16).padStart(2, '0');
+                }
+
+                // Decode secret
+                const keyBytes = this.base32Decode(this.secret);
+                let keyHex = '';
+                for (let i = 0; i < keyBytes.length; i++) {
+                    keyHex += keyBytes[i].toString(16).padStart(2, '0');
+                }
+
+                // Calculate HMAC
+                const shaObj = new jsSHA("SHA-1", "HEX");
+                shaObj.setHMACKey(keyHex, "HEX");
+                shaObj.update(timeHex);
+                const hmac = shaObj.getHMAC("HEX");
+
+                // Extract 4 bytes
+                const offset = parseInt(hmac.substring(hmac.length - 1), 16);
+                const otp = (parseInt(hmac.substr(offset * 2, 8), 16) & 0x7fffffff) % 1000000;
+
+                return otp.toString().padStart(6, '0');
+            }
+
+            generate() {
+                return this.generateTOTP(Date.now());
+            }
+
+            getTimeRemaining() {
+                return 30 - Math.floor((Date.now() / 1000) % 30);
+            }
+        }
+
+        class TwoFactorApp {
+            constructor() {
+                this.secret = this.getSecretFromURL();
+                this.totp = null;
+                this.timer = null;
+                this.init();
+            }
+
+            getSecretFromURL() {
+                const path = window.location.pathname;
+                const secret = path.substring(1) || window.location.hash.substring(1);
+                return secret;
+            }
+
+            init() {
+                const appDiv = document.getElementById('app');
+
+                if (!this.secret) {
+                    appDiv.innerHTML = `
+                        <div class="error-message">
+                            <strong>⚠️ 未提供 Secret</strong>
+                            <p>请在 URL 中提供 2FA Secret，例如：<br>
+                            <code>http://127.0.0.1:8080/YOUR_SECRET_HERE</code></p>
+                        </div>
+                    `;
+                    return;
+                }
+
+                try {
+                    this.totp = new TOTP(this.secret);
+                    this.render();
+                    this.startTimer();
+                } catch (error) {
+                    appDiv.innerHTML = `
+                        <div class="error-message">
+                            <strong>❌ 无效的 Secret</strong>
+                            <p>提供的 Secret 格式不正确，请检查后重试。</p>
+                            <p style="margin-top: 10px; font-size: 11px; opacity: 0.7;">错误信息: ${error.message}</p>
+                        </div>
+                    `;
+                }
+            }
+
+            render() {
+                const code = this.totp.generate();
+                const remaining = this.totp.getTimeRemaining();
+
+                const appDiv = document.getElementById('app');
+                appDiv.innerHTML = `
+                    <div class="code-display" onclick="app.copyCode('${code}')">
+                        <div class="code">${code}</div>
+                        <div class="code-hint">点击复制</div>
+                    </div>
+
+                    <div class="timer-container">
+                        <div class="timer-circle">
+                            <svg class="timer-svg" width="80" height="80">
+                                <circle class="timer-circle-bg" cx="40" cy="40" r="35"></circle>
+                                <circle class="timer-circle-progress" cx="40" cy="40" r="35"
+                                    stroke-dasharray="220"
+                                    stroke-dashoffset="${220 - (220 * remaining / 30)}"
+                                    id="progress-circle"></circle>
+                            </svg>
+                            <div class="timer-text" id="timer-text">${remaining}s</div>
+                        </div>
+                    </div>
+
+                    <div class="secret-info">
+                        <div class="secret-label">Secret Key</div>
+                        <div>${this.secret}</div>
+                    </div>
+                `;
+            }
+
+            startTimer() {
+                this.updateTimer();
+                this.timer = setInterval(() => {
+                    this.updateTimer();
+                }, 1000);
+            }
+
+            updateTimer() {
+                const remaining = this.totp.getTimeRemaining();
+                const timerText = document.getElementById('timer-text');
+                const progressCircle = document.getElementById('progress-circle');
+
+                if (timerText) {
+                    timerText.textContent = remaining + 's';
+                }
+
+                if (progressCircle) {
+                    const offset = 220 - (220 * remaining / 30);
+                    progressCircle.style.strokeDashoffset = offset;
+                }
+
+                if (remaining === 30) {
+                    this.render();
+                }
+            }
+
+            copyCode(code) {
+                if (navigator.clipboard && navigator.clipboard.writeText) {
+                    navigator.clipboard.writeText(code).then(() => {
+                        this.showToast('✓ 复制成功！');
+                    }).catch(() => {
+                        this.fallbackCopy(code);
+                    });
+                } else {
+                    this.fallbackCopy(code);
+                }
+            }
+
+            fallbackCopy(code) {
+                const textarea = document.createElement('textarea');
+                textarea.value = code;
+                textarea.style.position = 'fixed';
+                textarea.style.opacity = '0';
+                document.body.appendChild(textarea);
+                textarea.select();
+
+                try {
+                    document.execCommand('copy');
+                    this.showToast('✓ 复制成功！');
+                } catch (err) {
+                    this.showToast('❌ 复制失败', 'error');
+                }
+
+                document.body.removeChild(textarea);
+            }
+
+            showToast(message, type = 'success') {
+                const toast = document.getElementById('toast');
+                toast.textContent = message;
+                toast.style.background = type === 'success' ? '#4caf50' : '#f44336';
+                toast.classList.add('show');
+
+                setTimeout(() => {
+                    toast.classList.remove('show');
+                }, 3000);
+            }
+        }
+
+        let app;
+        window.addEventListener('DOMContentLoaded', () => {
+            app = new TwoFactorApp();
+        });
+    </script>
+</body>
+</html>
