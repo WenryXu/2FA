@@ -283,20 +283,48 @@
             }
 
             getSecretFromURL() {
+                // 支持多种方式传递 Secret:
+                // 1. Hash: https://your-domain.vercel.app/#YOUR_SECRET
+                // 2. Query: https://your-domain.vercel.app/?secret=YOUR_SECRET
+                // 3. Path: http://localhost/YOUR_SECRET (本地开发)
+
+                // 优先使用 Hash
+                if (window.location.hash) {
+                    return window.location.hash.substring(1);
+                }
+
+                // 其次使用 Query String
+                const urlParams = new URLSearchParams(window.location.search);
+                if (urlParams.has('secret')) {
+                    return urlParams.get('secret');
+                }
+
+                // 最后使用 Path (主要用于本地开发)
                 const path = window.location.pathname;
-                const secret = path.substring(1) || window.location.hash.substring(1);
-                return secret;
+                if (path && path !== '/' && path !== '/index.html') {
+                    return path.substring(1).replace('.html', '');
+                }
+
+                return '';
             }
 
             init() {
                 const appDiv = document.getElementById('app');
 
                 if (!this.secret) {
+                    const currentUrl = window.location.origin + window.location.pathname;
                     appDiv.innerHTML = `
                         <div class="error-message">
                             <strong>⚠️ 未提供 Secret</strong>
-                            <p>请在 URL 中提供 2FA Secret，例如：<br>
-                            <code>http://127.0.0.1:8080/YOUR_SECRET_HERE</code></p>
+                            <p>请使用以下任一方式提供 2FA Secret：</p>
+                            <p style="margin: 10px 0;">
+                                <strong>方式 1（推荐）：</strong><br>
+                                <code style="font-size: 11px;">${currentUrl}#YOUR_SECRET</code>
+                            </p>
+                            <p style="margin: 10px 0;">
+                                <strong>方式 2：</strong><br>
+                                <code style="font-size: 11px;">${currentUrl}?secret=YOUR_SECRET</code>
+                            </p>
                         </div>
                     `;
                     return;
